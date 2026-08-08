@@ -7,7 +7,7 @@
 # 粘贴你从企业微信群机器人复制的完整URL
 # 格式示例：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 # TODO: 本地测试前必须先填好这个！
-WECHAT_WEBHOOK_URL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=请粘贴你的KEY到这里"
+WECHAT_WEBHOOK_URL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=4005dc09-d3e9-461a-9694-c77b61b835f1"
 
 # ============ QQ群白名单 ============
 # 只转发这些群的消息（填群号，可多个）；留空 [] 表示转发所有群
