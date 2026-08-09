@@ -13,6 +13,8 @@ WECHAT_WEBHOOK_URL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=4005d
 # 只转发这些群的消息（填群号，可多个）；留空 [] 表示转发所有群
 # 本地测试时 test_local.py 里的模拟群号要能匹配上
 TARGET_GROUP_IDS: list[int] = [
+    1063720812,
+    467810240
     # 123456789,   # 示例：取消注释，替换为你要转发的QQ群号
     # 987654321,
 ]
