@@ -20,6 +20,8 @@ WECHAT_WEBHOOK_URL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=4005d
 # 只转发这些群的消息（填群号，可多个）；留空 [] 表示转发所有群
 # 本地测试时 test_local.py 里的模拟群号要能匹配上
 TARGET_GROUP_IDS: list[int] = [
+    1063720812,
+    467810240,
     # 123456789,   # 示例：取消注释，替换为你要转发的QQ群号
     # 987654321,
 ]
@@ -37,7 +39,7 @@ SUPPORTED_MSG_TYPES = ["text", "image", "at", "reply"]
 # 是否在转发消息前加上群名和发言人前缀
 ADD_SENDER_PREFIX = True
 # 忽略机器人自己发的消息
-IGNORE_SELF_MESSAGE = False
+IGNORE_SELF_MESSAGE = True
 
 # ============ 频率限制 ============
 # 企业微信Webhook每分钟最多20条，留点余量
