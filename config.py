@@ -3,6 +3,13 @@
 本地测试和云服务器部署都用这个文件，只改里面的值即可
 """
 
+# ============ NapCat HTTP API 地址 ============
+# NapCat 自身的 HTTP API 端口（不是事件上报端口），用于获取图片等资源
+# 通常在 NapCat 配置中设置，默认为 http://127.0.0.1:3000
+NAPCAT_API_URL = "http://127.0.0.1:3000"
+# NapCat HTTP API 鉴权 token（和 NapCat 配置里的 token 一致）
+NAPCAT_TOKEN = "s-zdvQKJ-PLgMtvg"
+
 # ============ 企业微信 Webhook URL ============
 # 粘贴你从企业微信群机器人复制的完整URL
 # 格式示例：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
@@ -30,7 +37,7 @@ SUPPORTED_MSG_TYPES = ["text", "image", "at", "reply"]
 # 是否在转发消息前加上群名和发言人前缀
 ADD_SENDER_PREFIX = True
 # 忽略机器人自己发的消息
-IGNORE_SELF_MESSAGE = True
+IGNORE_SELF_MESSAGE = False
 
 # ============ 频率限制 ============
 # 企业微信Webhook每分钟最多20条，留点余量
