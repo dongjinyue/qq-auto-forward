@@ -9,13 +9,10 @@ NapCat(OneBot11) 通过 HTTP POST 上报到 /onebot/event
 """
 from __future__ import annotations
 
-<<<<<<< HEAD
-=======
 import asyncio
 import base64
 import hashlib
 import re
->>>>>>> feat-wechat-test-deploy-KVGL5A
 import time
 from collections import deque
 from typing import Any
@@ -50,12 +47,6 @@ def _rate_limited() -> bool:
     return False
 
 
-<<<<<<< HEAD
-def _extract_text(message: list[dict] | str | Any) -> str:
-    """从 OneBot11 message 数组 / 字符串 提取纯文本"""
-    if isinstance(message, str):
-        return message.strip()
-=======
 def _parse_cq_code(cq_str: str) -> list[dict]:
     """把 CQ 码字符串解析成 OneBot11 消息段数组。
     例如：[CQ:image,file=abc.jpg,url=https://x]你好 -> [image段, text段]
@@ -114,7 +105,6 @@ def _extract_text(message: list[dict] | str | Any) -> str:
             message = _parse_cq_code(message)
         else:
             return message.strip()
->>>>>>> feat-wechat-test-deploy-KVGL5A
     if not isinstance(message, list):
         return ""
     parts: list[str] = []
@@ -132,12 +122,7 @@ def _extract_text(message: list[dict] | str | Any) -> str:
             name = d.get("name", "")
             parts.append(f"@{name or qq}" if (qq or name) else "@某人")
         elif t == "image":
-<<<<<<< HEAD
-            url = d.get("url", "") or d.get("file", "")
-            parts.append(f"[图片:{url[:40]}...]" if url else "[图片]")
-=======
             pass
->>>>>>> feat-wechat-test-deploy-KVGL5A
         elif t == "reply":
             parts.append("[引用]")
         elif t == "face":
@@ -148,8 +133,6 @@ def _extract_text(message: list[dict] | str | Any) -> str:
             parts.append("[语音]")
         elif t == "video":
             parts.append("[视频]")
-<<<<<<< HEAD
-=======
         elif t == "forward":
             fid = d.get("id", "") or d.get("forward_id", "") or ""
             if not fid:
@@ -163,14 +146,11 @@ def _extract_text(message: list[dict] | str | Any) -> str:
             if not fid:
                 _log(f"🔍 forward 段 data 全量：{d}")
             parts.append(f"\n[聊天记录({fid[:8] if fid else 'id未知'})]\n")
->>>>>>> feat-wechat-test-deploy-KVGL5A
         else:
             parts.append(f"[{t}]")
     return "".join(parts).strip()
 
 
-<<<<<<< HEAD
-=======
 def _extract_forward_ids(message: list[dict] | str | Any) -> list[str]:
     """提取消息数组中所有 forward 段的 id"""
     if not isinstance(message, list):
@@ -410,7 +390,6 @@ def _extract_segments(message: list[dict] | str | Any) -> list[dict[str, Any]]:
     return segments
 
 
->>>>>>> feat-wechat-test-deploy-KVGL5A
 def _match_keywords(text: str) -> bool:
     """关键词匹配：配置为空时全部放行；否则任意命中即放行"""
     if not config.KEYWORDS:
@@ -456,8 +435,6 @@ async def _send_to_wechat(content: str) -> tuple[bool, str]:
         return False, f"exception:{e}"
 
 
-<<<<<<< HEAD
-=======
 async def _fetch_image_data(image_info: dict[str, str]) -> bytes | None:
     """获取图片二进制数据
     优先级：NapCat /get_image API → base64:// → 本地文件 → HTTP 下载（带 UA）
@@ -612,7 +589,6 @@ async def _send_image_to_wechat(image_info: dict[str, str]) -> tuple[bool, str]:
         return False, f"exception:{e}"
 
 
->>>>>>> feat-wechat-test-deploy-KVGL5A
 @app.post("/onebot/event")
 async def handle_onebot_event(request: Request) -> JSONResponse:
     """接收 NapCat 的 OneBot11 HTTP 上报"""
@@ -630,12 +606,8 @@ async def handle_onebot_event(request: Request) -> JSONResponse:
     if config.DEBUG:
         _log(f"📥 收到事件 post_type={post_type} type={data.get('message_type')}")
 
-<<<<<<< HEAD
-    if post_type != "message":
-=======
     # 同时处理接收的消息（message）和自己发送的消息（message_sent）
     if post_type not in ("message", "message_sent"):
->>>>>>> feat-wechat-test-deploy-KVGL5A
         return JSONResponse({"status": "ignore_not_message"})
 
     # 只处理群消息
@@ -656,12 +628,6 @@ async def handle_onebot_event(request: Request) -> JSONResponse:
         _log(f"🚫 不在白名单的群 {group_id}，丢弃")
         return JSONResponse({"status": "filtered_group"})
 
-<<<<<<< HEAD
-    # 提取文本
-    raw_message = data.get("message", "")
-    text = _extract_text(raw_message)
-    if not text:
-=======
     # 提取有序消息段（保留 text/image 交错顺序）
     raw_message = data.get("message", "")
     if config.DEBUG:
@@ -695,41 +661,17 @@ async def handle_onebot_event(request: Request) -> JSONResponse:
     # 检查是否有可转发内容
     text_only = "".join(s.get("text", "") for s in final_segments if s["type"] == "text")
     if not text_only and not all_images:
->>>>>>> feat-wechat-test-deploy-KVGL5A
         _log("ℹ️ 消息无可转发内容，丢弃")
         return JSONResponse({"status": "empty_text"})
 
     # 关键词过滤
-<<<<<<< HEAD
-    if not _match_keywords(text):
-=======
     if not _match_keywords(text_only):
->>>>>>> feat-wechat-test-deploy-KVGL5A
         return JSONResponse({"status": "filtered_keyword"})
 
     # 限流
     if _rate_limited():
         return JSONResponse({"status": "rate_limited"})
 
-<<<<<<< HEAD
-    # 格式化
-    if config.ADD_SENDER_PREFIX:
-        group_name = data.get("group_name") or (f"群{group_id}" if group_id else "群")
-        nickname = (
-            sender.get("card")
-            or sender.get("nickname")
-            or (f"用户{user_id}" if user_id else "某人")
-        )
-        content = f"【{group_name}】{nickname}：\n{text}"
-    else:
-        content = text
-
-    # 发送
-    ok, reason = await _send_to_wechat(content)
-    if ok:
-        _log(f"✅ 转发成功 [{(content[:30]).replace(chr(10), ' ')}...]")
-    return JSONResponse({"status": "ok" if ok else f"send_failed:{reason}"})
-=======
     # 构建发言人/群名前缀
     group_name = data.get("group_name") or (f"群{group_id}" if group_id else "群")
     nickname = (
@@ -816,7 +758,6 @@ async def handle_onebot_event(request: Request) -> JSONResponse:
                 send_ok = False
 
     return JSONResponse({"status": "ok" if send_ok else "send_failed"})
->>>>>>> feat-wechat-test-deploy-KVGL5A
 
 
 @app.get("/health")
