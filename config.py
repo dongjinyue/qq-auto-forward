@@ -8,21 +8,19 @@
 # 通常在 NapCat 配置中设置，默认为 http://127.0.0.1:3000
 NAPCAT_API_URL = "http://127.0.0.1:3000"
 # NapCat HTTP API 鉴权 token（和 NapCat 配置里的 token 一致）
-NAPCAT_TOKEN = "s-zdvQKJ-PLgMtvg"
+NAPCAT_TOKEN = "请填入你的NapCat Token"
 
 # ============ 企业微信 Webhook URL ============
-# 粘贴你从企业微信群机器人复制的完整URL
+# 粘贴你从企业微信消息推送复制的完整URL
 # 格式示例：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 # TODO: 本地测试前必须先填好这个！
-WECHAT_WEBHOOK_URL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=4005dc09-d3e9-461a-9694-c77b61b835f1"
+WECHAT_WEBHOOK_URL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=请粘贴你的KEY"
 
 # ============ QQ群白名单 ============
 # 只转发这些群的消息（填群号，可多个）；留空 [] 表示转发所有群
 # 本地测试时 test_local.py 里的模拟群号要能匹配上
 TARGET_GROUP_IDS: list[int] = [
-    1063720812,
-    467810240,
-    # 123456789,   # 示例：取消注释，替换为你要转发的QQ群号
+    # 123456789,   # 示例：替换为你要转发的QQ群号
     # 987654321,
 ]
 
@@ -42,7 +40,7 @@ ADD_SENDER_PREFIX = True
 IGNORE_SELF_MESSAGE = True
 
 # ============ 频率限制 ============
-# 企业微信Webhook每分钟最多20条，留点余量
+# 企业微信消息推送每分钟最多20条，留点余量
 MAX_MSG_PER_MINUTE = 18
 
 # ============ 本地调试 ============

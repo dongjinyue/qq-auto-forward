@@ -1,5 +1,5 @@
 # main.py
-"""QQ消息 -> 企业微信群机器人 中转服务
+"""QQ消息 -> 企业微信消息推送 中转服务
 
 NapCat(OneBot11) 通过 HTTP POST 上报到 /onebot/event
 本服务过滤、格式化后调用企业微信 Webhook 推送。
