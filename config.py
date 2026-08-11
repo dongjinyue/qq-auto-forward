@@ -6,9 +6,9 @@
 # ============ NapCat HTTP API 地址 ============
 # NapCat 自身的 HTTP API 端口（不是事件上报端口），用于获取图片等资源
 # 通常在 NapCat 配置中设置，默认为 http://127.0.0.1:3000
-NAPCAT_API_URL = "http://127.0.0.1:3000"
+NAPCAT_API_URL = "http://127.0.0.1:3001"
 # NapCat HTTP API 鉴权 token（和 NapCat 配置里的 token 一致）
-NAPCAT_TOKEN = "请填入你的NapCat Token"
+NAPCAT_TOKEN = "your-napcat-token-here"
 
 # ============ 企业微信 Webhook URL ============
 # 粘贴你从企业微信消息推送复制的完整URL
