@@ -25,6 +25,89 @@ import config
 
 app = FastAPI(title="QQ Forward to WeChat")
 
+# ============ 保活与掉线检测 ============
+_KEEPALIVE_INTERVAL = 15 * 60          # 心跳间隔：15分钟
+_OFFLINE_ALERT_COOLDOWN = 60 * 60      # 掉线告警冷却：1小时内不重复发
+_CONSECUTIVE_OFFLINE_THRESHOLD = 2     # 连续N次心跳失败才判定掉线（避免偶发网络波动误报）
+
+_consecutive_offline = 0
+_last_offline_alert_ts = 0.0
+
+
+def _build_napcat_headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    token = getattr(config, "NAPCAT_TOKEN", "") or ""
+    if token and "your-napcat-token-here" not in token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+async def _alert_offline_via_wechat(reason: str) -> None:
+    """通过企业微信Webhook发掉线告警，冷却内不重复发"""
+    global _last_offline_alert_ts
+    now = time.time()
+    if now - _last_offline_alert_ts < _OFFLINE_ALERT_COOLDOWN:
+        return
+    webhook = getattr(config, "WECHAT_WEBHOOK_URL", "") or ""
+    if not webhook or "请粘贴你的KEY" in webhook:
+        _log("⚠️ 检测到掉线，但企业微信Webhook未配置，跳过告警")
+        return
+    content = (
+        "【QQ转发服务告警】\n"
+        f"时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}\n"
+        f"异常：{reason}\n"
+        "请尽快登录服务器SSH或WebUI检查NapCat状态，如掉线需重新扫码。"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(webhook, json={"msgtype": "text", "text": {"content": content}})
+            if resp.status_code == 200:
+                _last_offline_alert_ts = now
+                _log("📢 掉线告警已发送到企业微信")
+    except Exception as e:
+        _log(f"❌ 发送掉线告警失败：{e}")
+
+
+async def _keepalive_loop() -> None:
+    """后台保活循环：定时调用NapCat接口模拟活跃行为 + 检测登录态"""
+    global _consecutive_offline
+    await asyncio.sleep(10)  # 启动延迟，等NapCat就绪
+    _log(f"💓 保活任务已启动，每{_KEEPALIVE_INTERVAL//60}分钟检查一次QQ在线状态")
+    while True:
+        try:
+            api_url = getattr(config, "NAPCAT_API_URL", "http://127.0.0.1:3001").rstrip("/")
+            headers = _build_napcat_headers()
+            async with httpx.AsyncClient(timeout=15) as client:
+                # 调用 OneBot11 get_status，既做假活跃心跳又拿登录状态
+                resp = await client.post(f"{api_url}/get_status", headers=headers, json={})
+                if resp.status_code != 200:
+                    raise RuntimeError(f"HTTP {resp.status_code}")
+                data = resp.json()
+                status_data = data.get("data") or {}
+                online = bool(status_data.get("online")) or data.get("status") == "ok"
+                if online:
+                    _consecutive_offline = 0
+                    good = status_data.get("good")
+                    _log(f"💓 QQ保活正常 online={online} good={good}")
+                else:
+                    _consecutive_offline += 1
+                    _log(f"⚠️  心跳检测到QQ疑似离线（连续{_consecutive_offline}次）resp={data}")
+        except Exception as e:
+            _consecutive_offline += 1
+            _log(f"⚠️  心跳请求失败（连续{_consecutive_offline}次）：{e}")
+
+        if _consecutive_offline >= _CONSECUTIVE_OFFLINE_THRESHOLD:
+            _log("🚨 判定QQ已掉线，尝试推送告警")
+            await _alert_offline_via_wechat(f"QQ连续{_consecutive_offline}次心跳无响应（NapCat API不可达或online=false）")
+            _consecutive_offline = 0  # 发过告警后重置计数，等冷却后再提醒
+
+        await asyncio.sleep(_KEEPALIVE_INTERVAL)
+
+
+@app.on_event("startup")
+async def _on_startup() -> None:
+    asyncio.create_task(_keepalive_loop())
+
 # 滑动窗口限流（60秒内最多 MAX_MSG_PER_MINUTE 条）
 _msg_timestamps: deque[float] = deque()
 
