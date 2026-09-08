@@ -265,12 +265,25 @@ def _extract_forward_ids(message: list[dict] | str | Any) -> list[str]:
     return ids
 
 
-async def _fetch_forward_content(forward_id: str) -> list[dict[str, Any]]:
+async def _fetch_forward_content(
+    forward_id: str,
+    *,
+    _visited: frozenset[str] | None = None,
+    _depth: int = 0,
+) -> list[dict[str, Any]]:
     """调用 NapCat /get_forward_msg 获取合并转发的聊天记录内容。
     返回有序段列表：[{"type":"text","text":"昵称: xxx"}, {"type":"image","url":"...","file":"..."}, ...]
     保持聊天记录内部「文字→图片」交错顺序
     """
     result_segments: list[dict[str, Any]] = []
+
+    # 异常的循环引用或过深嵌套不应让服务无限请求 NapCat。
+    visited = _visited or frozenset()
+    if forward_id in visited:
+        return [{"type": "text", "text": "[聊天记录：检测到循环引用]"}]
+    if _depth >= 5:
+        return [{"type": "text", "text": "[聊天记录：嵌套层数过多]"}]
+    visited = visited | {forward_id}
     try:
         api_url = f"{config.NAPCAT_API_URL}/get_forward_msg"
         headers = {}
@@ -370,7 +383,27 @@ async def _fetch_forward_content(forward_id: str) -> list[dict[str, Any]]:
                         elif st == "video":
                             text_buf.append(" [视频]")
                         elif st == "forward":
-                            text_buf.append(" [聊天记录]")
+                            nested_id = sd.get("id", "") or sd.get("forward_id", "") or ""
+                            if not nested_id:
+                                # 兼容 NapCat 可能使用其他字段存放合并转发 ID。
+                                for key in list(sd.keys()):
+                                    value = sd.get(key)
+                                    if isinstance(value, str) and value and len(value) > 5:
+                                        nested_id = value
+                                        break
+
+                            if nested_id:
+                                # 先保留外层发言人前缀，再按原顺序插入内层记录。
+                                flush_text_buf()
+                                nested_segments = await _fetch_forward_content(
+                                    nested_id,
+                                    _visited=visited,
+                                    _depth=_depth + 1,
+                                )
+                                result_segments.extend(nested_segments)
+                                has_content = True
+                            else:
+                                text_buf.append(" [聊天记录：ID未知]")
 
                     # 本条消息结束，flush 剩余文本 + 换行
                     if text_buf and "".join(text_buf).strip():
@@ -711,6 +744,15 @@ async def handle_onebot_event(request: Request) -> JSONResponse:
         _log(f"🚫 不在白名单的群 {group_id}，丢弃")
         return JSONResponse({"status": "filtered_group"})
 
+    # 发送者角色白名单（OneBot11: owner/admin/member）
+    sender_role = str(sender.get("role") or "").lower()
+    allowed_sender_roles = {
+        str(role).lower() for role in getattr(config, "ALLOWED_SENDER_ROLES", [])
+    }
+    if allowed_sender_roles and sender_role not in allowed_sender_roles:
+        _log(f"🚫 发送者角色 {sender_role or 'unknown'} 不在白名单，丢弃")
+        return JSONResponse({"status": "filtered_sender_role"})
+
     # 提取有序消息段（保留 text/image 交错顺序）
     raw_message = data.get("message", "")
     if config.DEBUG:
@@ -851,5 +893,6 @@ async def health() -> dict[str, Any]:
         "service": "qq-forward",
         "webhook_configured": "请粘贴你的KEY" not in config.WECHAT_WEBHOOK_URL,
         "target_groups": config.TARGET_GROUP_IDS,
+        "allowed_sender_roles": getattr(config, "ALLOWED_SENDER_ROLES", []),
         "keywords": config.KEYWORDS,
     }
