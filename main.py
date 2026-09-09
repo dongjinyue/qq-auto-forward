@@ -27,6 +27,7 @@ app = FastAPI(title="QQ Forward to WeChat")
 
 # 滑动窗口限流（60秒内最多 MAX_MSG_PER_MINUTE 条）
 _msg_timestamps: deque[float] = deque()
+_rate_limit_lock = asyncio.Lock()
 
 
 def _log(msg: str) -> None:
@@ -35,16 +36,31 @@ def _log(msg: str) -> None:
         print(f"[{ts}] {msg}")
 
 
-def _rate_limited() -> bool:
-    """返回 True 表示被限流，丢弃本条消息"""
-    now = time.time()
-    while _msg_timestamps and now - _msg_timestamps[0] > 60:
-        _msg_timestamps.popleft()
-    if len(_msg_timestamps) >= config.MAX_MSG_PER_MINUTE:
-        _log("⚠️ 限流触发，丢弃本条")
-        return True
-    _msg_timestamps.append(now)
-    return False
+def _reserve_rate_limit_slot(timestamps: deque[float], *, now: float) -> float:
+    """预留一次 Webhook 请求额度，返回需要等待的秒数。
+
+    返回 0 表示已成功预留；大于 0 时不修改队列，由调用方等待后重试。
+    """
+    while timestamps and now - timestamps[0] >= 60:
+        timestamps.popleft()
+    if len(timestamps) >= config.MAX_MSG_PER_MINUTE:
+        return max(0.0, 60 - (now - timestamps[0]))
+    timestamps.append(now)
+    return 0.0
+
+
+async def _wait_for_rate_limit_slot() -> None:
+    """等到有可用额度再发送，避免因限流直接丢消息。"""
+    while True:
+        async with _rate_limit_lock:
+            wait_seconds = _reserve_rate_limit_slot(
+                _msg_timestamps,
+                now=time.monotonic(),
+            )
+        if wait_seconds <= 0:
+            return
+        _log(f"⏳ 发送额度已用完，等待 {wait_seconds:.1f} 秒后继续")
+        await asyncio.sleep(wait_seconds)
 
 
 def _parse_cq_code(cq_str: str) -> list[dict]:
@@ -242,10 +258,7 @@ async def _fetch_forward_content(
                 # 聊天记录开头分隔符
                 result_segments.append({"type": "text", "text": "---聊天记录---\n"})
 
-                for idx, m in enumerate(msgs):
-                    if idx >= 30:
-                        result_segments.append({"type": "text", "text": f"\n……（剩余 {len(msgs) - 30} 条已省略）"})
-                        break
+                for m in msgs:
                     if not isinstance(m, dict):
                         if isinstance(m, str):
                             result_segments.append({"type": "text", "text": m + "\n"})
@@ -369,6 +382,61 @@ def _extract_image_info(message: list[dict] | str | Any) -> list[dict[str, str]]
     return images
 
 
+def _split_text_by_utf8_bytes(text: str, max_bytes: int) -> list[str]:
+    """按 UTF-8 字节数安全分割文本，不会把一个中文字拆坏。"""
+    if max_bytes <= 0:
+        raise ValueError("max_bytes 必须大于 0")
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_bytes = 0
+
+    for char in text:
+        char_bytes = len(char.encode("utf-8"))
+        if current and current_bytes + char_bytes > max_bytes:
+            chunks.append("".join(current))
+            current = []
+            current_bytes = 0
+        current.append(char)
+        current_bytes += char_bytes
+
+    if current:
+        chunks.append("".join(current))
+    return chunks
+
+
+def _batch_text_segments(
+    segments: list[dict[str, Any]],
+    *,
+    max_bytes: int = 3800,
+) -> list[dict[str, Any]]:
+    """合并相邻文本段，并在企业微信上限内分块。
+
+    图片是顺序边界：图片前后的文本不会跨过图片合并，
+    因此仍能保持原聊天记录中的图文顺序。
+    """
+    batched: list[dict[str, Any]] = []
+    text_buffer: list[str] = []
+
+    def flush_text() -> None:
+        if not text_buffer:
+            return
+        combined = "".join(text_buffer)
+        text_buffer.clear()
+        for chunk in _split_text_by_utf8_bytes(combined, max_bytes):
+            if chunk:
+                batched.append({"type": "text", "text": chunk})
+
+    for segment in segments:
+        if segment.get("type") == "text":
+            text_buffer.append(str(segment.get("text", "")))
+        else:
+            flush_text()
+            batched.append(segment)
+    flush_text()
+    return batched
+
+
 def _extract_segments(message: list[dict] | str | Any) -> list[dict[str, Any]]:
     """从 OneBot11 message 数组提取有序消息段列表
     返回格式: [{"type": "text", "text": "hello"}, {"type": "image", "url": "...", "file": "..."}, ...]
@@ -452,6 +520,8 @@ async def _send_to_wechat(content: str) -> tuple[bool, str]:
         return False, "webhook_not_configured"
 
     try:
+        # 限流按真实的 Webhook 请求计数，而不是按 QQ 入站事件计数。
+        await _wait_for_rate_limit_slot()
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(config.WECHAT_WEBHOOK_URL, json=payload)
             data = resp.json()
@@ -605,6 +675,7 @@ async def _send_image_to_wechat(image_info: dict[str, str]) -> tuple[bool, str]:
     }
 
     try:
+        await _wait_for_rate_limit_slot()
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(config.WECHAT_WEBHOOK_URL, json=payload)
             data = resp.json()
@@ -710,10 +781,6 @@ async def handle_onebot_event(request: Request) -> JSONResponse:
     if not _match_keywords(text_only):
         return JSONResponse({"status": "filtered_keyword"})
 
-    # 限流
-    if _rate_limited():
-        return JSONResponse({"status": "rate_limited"})
-
     # 构建发言人/群名前缀
     group_name = data.get("group_name") or (f"群{group_id}" if group_id else "群")
     nickname = (
@@ -722,6 +789,10 @@ async def handle_onebot_event(request: Request) -> JSONResponse:
         or (f"用户{user_id}" if user_id else "某人")
     )
     prefix = f"【{group_name}】{nickname}：\n" if config.ADD_SENDER_PREFIX else ""
+
+    # 聊天记录中的每条纯文本不需要单独占用一次 Webhook 额度。
+    # 预留前缀空间，并保持图片前后的原始顺序。
+    final_segments = _batch_text_segments(final_segments, max_bytes=3600)
 
     # 并行下载所有图片
     if all_images:
@@ -786,6 +857,7 @@ async def handle_onebot_event(request: Request) -> JSONResponse:
                 "image": {"base64": b64, "md5": md5},
             }
             try:
+                await _wait_for_rate_limit_slot()
                 async with httpx.AsyncClient(timeout=10) as client:
                     resp = await client.post(config.WECHAT_WEBHOOK_URL, json=payload)
                     data_resp = resp.json()
